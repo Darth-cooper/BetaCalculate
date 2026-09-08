@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>資產配置、損益與圓餅圖分析儀表板</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --primary: #38bdf8;
+      --core-color: #3b82f6;
+      --leveraged-color: #f59e0b;
+      --cash-color: #10b981;
+      --stock-color: #8b5cf6; /* 新增個股的專屬顏色 */
+      --profit: #ef4444; 
+      --loss: #22c55e;   
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding: 24px 16px; line-height: 1.5; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    header { margin-bottom: 24px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
+    h1 { font-size: 1.6rem; font-weight: 700; color: #fff; }
+    p.subtitle { color: var(--text-muted); font-size: 0.9rem; }
+
+    /* 總覽儀表板 */
+    .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .stat-label { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; }
+    .stat-sub { font-size: 0.85rem; margin-top: 4px; }
+    
+    /* 圓餅圖區塊 */
+    .chart-container { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 24px; }
+    .chart-title { font-size: 1.05rem; font-weight: 600; margin-bottom: 16px; }
+    .chart-layout { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 36px; }
+    .canvas-wrapper { position: relative; width: 230px; height: 230px; }
+    canvas { width: 100%; height: 100%; display: block; }
+    
+    .pie-legend { display: flex; flex-direction: column; gap: 14px; min-width: 280px; }
+    .legend-box { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+    .legend-left { display: flex; align-items: center; gap: 10px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .legend-name { font-weight: 600; font-size: 0.95rem; }
+    .legend-pct { font-size: 1.15rem; font-weight: 700; }
+    .legend-amt { font-size: 0.85rem; color: var(--text-muted); text-align: right; }
+
+    /* 表格區塊 */
+    .section-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 20px; overflow-x: auto; }
+    .section-title { font-size: 1.15rem; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+    
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 700px; }
+    th { text-align: left; padding: 10px 8px; color: var(--text-muted); border-bottom: 1px solid var(--border); font-weight: 500; }
+    td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    
+    input[type="number"] { width: 120px; background: #0f172a; border: 1px solid var(--border); border-radius: 5px; color: #fff; padding: 6px 8px; font-size: 0.9rem; }
+    input[type="number"]:focus { outline: none; border-color: var(--primary); }
+
+    .cash-input-group { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .cash-input-group label { font-size: 0.9rem; color: var(--text-muted); }
+
+    .profit-text { color: var(--profit); font-weight: 600; }
+    .loss-text { color: var(--loss); font-weight: 600; }
+    .neutral-text { color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1>資產配置與損益儀表板</h1>
+      <p class="subtitle">追蹤持股成本、未實現損益、圓餅圖配置比例與整體 Beta 曝險</p>
+    </div>
+  </header>
+
+  <!-- 總覽數據卡片 -->
+  <div class="dashboard">
+    <div class="stat-card">
+      <div class="stat-label">組合總市值 (TWD)</div>
+      <div class="stat-value" id="totalValue">$0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">總投入成本 (TWD)</div>
+      <div class="stat-value" id="totalCost">$0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">總未實現損益</div>
+      <div class="stat-value" id="totalPnL">$0</div>
+      <div class="stat-sub" id="totalPnLRate">0.00%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">加權配置 Beta (不含個股)</div>
+      <div class="stat-value" id="portfolioBeta">0.00</div>
+      <div class="stat-sub" id="exposureRatio">等效曝險: 0%</div>
+    </div>
+  </div>
+
+  <!-- 圓餅圖區塊 (排除獨立個股) -->
+  <div class="chart-container">
+    <div class="chart-title">核心配置權重比例 (不包含獨立持有個股)</div>
+    <div class="chart-layout">
+      <div class="canvas-wrapper">
+        <canvas id="pieCanvas" width="460" height="460"></canvas>
+      </div>
+      <div class="pie-legend">
+        <!-- 原型大盤 -->
+        <div class="legend-box" style="border-left: 4px solid var(--core-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--core-color);"></div>
+            <div>
+              <div class="legend-name">原型大盤</div>
+              <div class="legend-amt" id="amtCore">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctCore" style="color: var(--core-color);">0.0%</div>
+        </div>
+
+        <!-- 槓桿正二 -->
+        <div class="legend-box" style="border-left: 4px solid var(--leveraged-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--leveraged-color);"></div>
+            <div>
+              <div class="legend-name">槓桿正二</div>
+              <div class="legend-amt" id="amtLeveraged">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctLeveraged" style="color: var(--leveraged-color);">0.0%</div>
+        </div>
+
+        <!-- 類現金 -->
+        <div class="legend-box" style="border-left: 4px solid var(--cash-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--cash-color);"></div>
+            <div>
+              <div class="legend-name">類現金</div>
+              <div class="legend-amt" id="amtCash">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctCash" style="color: var(--cash-color);">0.0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 圓餅圖區塊 (包含獨立個股) -->
+  <div class="chart-container">
+    <div class="chart-title">核心配置權重比例 (包含獨立持有個股)</div>
+    <div class="chart-layout">
+      <div class="canvas-wrapper">
+        <canvas id="4ItemCanvas" width="460" height="460"></canvas>
+      </div>
+      <div class="pie-legend">
+        <!-- 原型大盤 -->
+        <div class="legend-box" style="border-left: 4px solid var(--core-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--core-color);"></div>
+            <div>
+              <div class="legend-name">原型大盤</div>
+              <div class="legend-amt" id="amtCore">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctCore" style="color: var(--core-color);">0.0%</div>
+        </div>
+
+        <!-- 槓桿正二 -->
+        <div class="legend-box" style="border-left: 4px solid var(--leveraged-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--leveraged-color);"></div>
+            <div>
+              <div class="legend-name">槓桿正二</div>
+              <div class="legend-amt" id="amtLeveraged">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctLeveraged" style="color: var(--leveraged-color);">0.0%</div>
+        </div>
+
+        <!-- 類現金 -->
+        <div class="legend-box" style="border-left: 4px solid var(--cash-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--cash-color);"></div>
+            <div>
+              <div class="legend-name">類現金</div>
+              <div class="legend-amt" id="amtCash">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctCash" style="color: var(--cash-color);">0.0%</div>
+        </div>
+		
+		<!-- 持有個股 -->
+        <div class="legend-box" style="border-left: 4px solid var(--stock-color);">
+          <div class="legend-left">
+            <div class="legend-dot" style="background: var(--stock-color);"></div>
+            <div>
+              <div class="legend-name">持有個股</div>
+              <div class="legend-amt" id="amtStock">$0</div>
+            </div>
+          </div>
+          <div class="legend-pct" id="pctCash" style="color: var(--stock-color);">0.0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 1. 原型大盤 -->
+  <div class="section-card">
+    <div class="section-title">
+      <span style="color: var(--core-color);">● 原型大盤標的 (Beta = 1.0)</span>
+      <span id="subtotalCore" style="font-size: 0.95rem; color: var(--text-muted);">$0</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>代碼 / 名稱</th>
+          <th>市價</th>
+          <th>持有股數</th>
+          <th>總成本 (TWD)</th>
+          <th>目前市值 (TWD)</th>
+          <th>未實現損益</th>
+        </tr>
+      </thead>
+      <tbody id="coreTableBody"></tbody>
+    </table>
+    <div class="cash-input-group" style="padding: 12px 8px 0 8px;">
+      <label>預計額外投入原型大盤之現金 (TWD):</label>
+      <input type="number" id="extraCoreCash" value="0" step="10000" oninput="calculateAll()" />
+    </div>
+  </div>
+
+  <!-- 2. 槓桿正二 -->
+  <div class="section-card">
+    <div class="section-title">
+      <span style="color: var(--leveraged-color);">● 槓桿正二標的 (Beta = 2.0)</span>
+      <span id="subtotalLeveraged" style="font-size: 0.95rem; color: var(--text-muted);">$0</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>代碼 / 名稱</th>
+          <th>市價</th>
+          <th>持有股數</th>
+          <th>總成本 (TWD)</th>
+          <th>目前市值 (TWD)</th>
+          <th>未實現損益</th>
+        </tr>
+      </thead>
+      <tbody id="leveragedTableBody"></tbody>
+    </table>
+    <div class="cash-input-group" style="padding: 12px 8px 0 8px;">
+      <label>預計額外投入槓桿正二之現金 (TWD):</label>
+      <input type="number" id="extraLevCash" value="820000" step="10000" oninput="calculateAll()" />
+    </div>
+  </div>
+
+  <!-- 3. 類現金 -->
+  <div class="section-card">
+    <div class="section-title">
+      <span style="color: var(--cash-color);">● 類現金標的 (Beta = 0.0)</span>
+      <span id="subtotalCash" style="font-size: 0.95rem; color: var(--text-muted);">$0</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>代碼 / 名稱</th>
+          <th>市價</th>
+          <th>持有股數</th>
+          <th>總成本 (TWD)</th>
+          <th>目前市值 (TWD)</th>
+          <th>未實現損益</th>
+        </tr>
+      </thead>
+      <tbody id="cashTableBody"></tbody>
+    </table>
+    <div class="cash-input-group" style="padding: 12px 8px 0 8px;">
+      <label>其他類現金 / 保留流動資金 (TWD):</label>
+      <input type="number" id="manualCashReserve" value="550000" step="10000" oninput="calculateAll()" />
+    </div>
+  </div>
+
+  <!-- 4. 持有個股 (新增獨立區塊) -->
+  <div class="section-card">
+    <div class="section-title">
+      <span style="color: var(--stock-color);">● 持有個股 (獨立計算市值，不計入上方配置權重)</span>
+      <span id="subtotalStock" style="font-size: 0.95rem; color: var(--text-muted);">$0</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>代碼 / 名稱</th>
+          <th>市價</th>
+          <th>持有股數</th>
+          <th>總成本 (TWD)</th>
+          <th>目前市值 (TWD)</th>
+          <th>未實現損益</th>
+        </tr>
+      </thead>
+      <tbody id="stockTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const holdingsData = [
+  // 原型大盤 (Beta: 1.0)
+  { type: 'core', symbol: '0050', name: '元大台灣50', price: 198.5, shares: 0, cost: 0, beta: 1.0 },
+  { type: 'core', symbol: '00662', name: '富邦NASDAQ (QQQ)', price: 119.95, shares: 15000, cost: 1502780, beta: 1.0 },
+  { type: 'core', symbol: '00646', name: '元大S&P500 (SPY)', price: 61.2, shares: 0, cost: 0, beta: 1.0 },
+
+  // 槓桿正二 (Beta: 2.0)
+  { type: 'leveraged', symbol: '00670L', name: '富邦NASDAQ正2 (QLD)', price: 135.0, shares: 0, cost: 0, beta: 2.0 },
+  { type: 'leveraged', symbol: '00631L', name: '元大台灣50正2', price: 235.0, shares: 0, cost: 0, beta: 2.0 },
+  { type: 'leveraged', symbol: '00685L', name: '群益加權正2', price: 12.47, shares: 50000, cost: 549806, beta: 2.0 },
+  { type: 'leveraged', symbol: '00675L', name: '富邦加權正2', price: 95.0, shares: 0, cost: 0, beta: 2.0 },
+  { type: 'leveraged', symbol: '00663L', name: '國泰加權正2', price: 215.0, shares: 0, cost: 0, beta: 2.0 },
+
+  // 類現金 (Beta: 0.0)
+  { type: 'cash', symbol: '00865B', name: '國泰US短期公債', price: 31.5, shares: 0, cost: 0, beta: 0.0 },
+  { type: 'cash', symbol: '00864B', name: '美債0-1年', price: 40.2, shares: 0, cost: 0, beta: 0.0 },
+
+  // 持有個股 (不計入配置權重)
+  { type: 'stock', symbol: '2330', name: '台積電', price: 2470, shares: 300, cost: 526987, beta: 0.0 },
+  { type: 'stock', symbol: '8131', name: '福懋科', price: 61.9, shares: 2000, cost: 138328, beta: 0.0 },
+  { type: 'stock', symbol: '6789', name: '采鈺', price: 463, shares: 200, cost: 114107, beta: 0.0 }
+];
+
+function initTables() {
+  const coreBody = document.getElementById('coreTableBody');
+  const levBody = document.getElementById('leveragedTableBody');
+  const cashBody = document.getElementById('cashTableBody');
+  const stockBody = document.getElementById('stockTableBody');
+
+  holdingsData.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${item.symbol}</strong> <span style="color:var(--text-muted); font-size:0.85rem;">${item.name}</span></td>
+      <td><input type="number" id="price_${index}" value="${item.price}" step="0.05" oninput="updateItem(${index})" /></td>
+      <td><input type="number" id="shares_${index}" value="${item.shares}" step="1" oninput="updateItem(${index})" /></td>
+      <td><input type="number" id="cost_${index}" value="${item.cost}" step="1" oninput="updateItem(${index})" /></td>
+      <td id="val_${index}" style="font-weight:600;">$0</td>
+      <td id="pnl_${index}">$0 (0.00%)</td>
+    `;
+    if (item.type === 'core') coreBody.appendChild(tr);
+    else if (item.type === 'leveraged') levBody.appendChild(tr);
+    else if (item.type === 'cash') cashBody.appendChild(tr);
+    else if (item.type === 'stock') stockBody.appendChild(tr);
+  });
+
+  calculateAll();
+}
+
+function updateItem(index) {
+  const p = parseFloat(document.getElementById(`price_${index}`).value) || 0;
+  const s = parseFloat(document.getElementById(`shares_${index}`).value) || 0;
+  const c = parseFloat(document.getElementById(`cost_${index}`).value) || 0;
+  holdingsData[index].price = p;
+  holdingsData[index].shares = s;
+  holdingsData[index].cost = c;
+  calculateAll();
+}
+
+function formatPnL(amount, rate) {
+  const sign = amount > 0 ? '+' : '';
+  const cls = amount > 0 ? 'profit-text' : (amount < 0 ? 'loss-text' : 'neutral-text');
+  return `<span class="${cls}">${sign}$${Math.round(amount).toLocaleString()} (${sign}${rate.toFixed(2)}%)</span>`;
+}
+
+function drawPieChart(slices, totalBase) {
+  const canvas = document.getElementById('pieCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  const w = 460;
+  const h = 460;
+  ctx.clearRect(0, 0, w, h);
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const outerRadius = 180;
+  const innerRadius = 110;
+
+  if (totalBase <= 0) {
+    ctx.fillStyle = '#334155';
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerRadius, 0, 2 * Math.PI);
+    ctx.arc(cx, cy, innerRadius, 0, 2 * Math.PI, true);
+    ctx.fill();
+    return;
+  }
+
+  let startAngle = -0.5 * Math.PI;
+
+  slices.forEach(slice => {
+    if (slice.value <= 0) return;
+    const sliceAngle = (slice.value / totalBase) * 2 * Math.PI;
+    const endAngle = startAngle + sliceAngle;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerRadius, startAngle, endAngle);
+    ctx.arc(cx, cy, innerRadius, endAngle, startAngle, true);
+    ctx.closePath();
+    ctx.fillStyle = slice.color;
+    ctx.fill();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#1e293b';
+    ctx.stroke();
+
+    startAngle = endAngle;
+  });
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '500 24px -apple-system, sans-serif';
+  ctx.fillText('核心配置總額', cx, cy - 18);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 30px -apple-system, sans-serif';
+  const totalStr = '$' + Math.round(totalBase).toLocaleString();
+  ctx.fillText(totalStr, cx, cy + 22);
+}
+
+function calculateAll() {
+  let coreVal = 0, levVal = 0, cashVal = 0, stockVal = 0;
+  let totalStockCost = 0;
+  let totalStockVal = 0;
+
+  holdingsData.forEach((item, i) => {
+    const val = item.price * item.shares;
+    document.getElementById(`val_${i}`).innerText = '$' + Math.round(val).toLocaleString();
+    
+	if(item.type != 'stock'){
+		if (item.cost > 0) {
+		  const pnl = val - item.cost;
+		  const pnlRate = (pnl / item.cost) * 100;
+		  document.getElementById(`pnl_${i}`).innerHTML = formatPnL(pnl, pnlRate);
+		  totalStockCost += item.cost;
+		  totalStockVal += val;
+		} else if (item.shares > 0 && item.cost === 0) {
+		  document.getElementById(`pnl_${i}`).innerHTML = `<span class="neutral-text">未輸入成本</span>`;
+		} else {
+		  document.getElementById(`pnl_${i}`).innerHTML = `<span class="neutral-text">-</span>`;
+		}
+    }
+	
+    if (item.type === 'core') coreVal += val;
+    else if (item.type === 'leveraged') levVal += val;
+    else if (item.type === 'cash') cashVal += val;
+    else if (item.type === 'stock') stockVal += val;
+  });
+
+  const extraCoreCash = parseFloat(document.getElementById('extraCoreCash').value) || 0;
+  const extraLevCash = parseFloat(document.getElementById('extraLevCash').value) || 0;
+  const manualCash = parseFloat(document.getElementById('manualCashReserve').value) || 0;
+
+  const totalCoreVal = coreVal + extraCoreCash;
+  const totalLevVal = levVal + extraLevCash;
+  const totalCashVal = cashVal + manualCash;
+  
+  
+  // 核心配置基準 (僅計算大盤、正二、類現金)
+  const pieTotal = totalCoreVal + totalLevVal + totalCashVal; 
+  // 總資產市值 (加上獨立持股)
+  const grandTotal = pieTotal ; 
+  // 總投入成本
+  const grandTotalCost = totalStockCost + extraCoreCash + extraLevCash + manualCash;
+
+  // 更新分項小計
+  document.getElementById('subtotalCore').innerText = '$' + Math.round(totalCoreVal).toLocaleString();
+  document.getElementById('subtotalLeveraged').innerText = '$' + Math.round(totalLevVal).toLocaleString();
+  document.getElementById('subtotalCash').innerText = '$' + Math.round(totalCashVal).toLocaleString();
+  document.getElementById('subtotalStock').innerText = '$' + Math.round(stockVal).toLocaleString();
+
+  // 儀表板總數值更新
+  document.getElementById('totalValue').innerText = '$' + Math.round(grandTotal).toLocaleString();
+  document.getElementById('totalCost').innerText = '$' + Math.round(grandTotalCost).toLocaleString();
+
+  // 總損益 (包含所有股票與個股)
+  const totalPnL = totalStockVal - totalStockCost;
+  const totalPnLRate = totalStockCost > 0 ? (totalPnL / totalStockCost) * 100 : 0;
+  const pnlSign = totalPnL > 0 ? '+' : '';
+  const pnlCls = totalPnL > 0 ? 'profit-text' : (totalPnL < 0 ? 'loss-text' : 'neutral-text');
+  
+  document.getElementById('totalPnL').className = `stat-value ${pnlCls}`;
+  document.getElementById('totalPnL').innerText = `${pnlSign}$${Math.round(totalPnL).toLocaleString()}`;
+  document.getElementById('totalPnLRate').className = `stat-sub ${pnlCls}`;
+  document.getElementById('totalPnLRate').innerText = `${pnlSign}${totalPnLRate.toFixed(2)}% (全部持股損益率)`;
+
+  // 計算配置比例與圓餅圖 (使用 pieTotal，徹底排除獨立個股)
+  if (pieTotal > 0) {
+    const corePct = (totalCoreVal / pieTotal) * 100;
+    const levPct = (totalLevVal / pieTotal) * 100;
+    const cashPct = (totalCashVal / pieTotal) * 100;
+
+    document.getElementById('pctCore').innerText = corePct.toFixed(1) + '%';
+    document.getElementById('pctLeveraged').innerText = levPct.toFixed(1) + '%';
+    document.getElementById('pctCash').innerText = cashPct.toFixed(1) + '%';
+
+    document.getElementById('amtCore').innerText = '$' + Math.round(totalCoreVal).toLocaleString();
+    document.getElementById('amtLeveraged').innerText = '$' + Math.round(totalLevVal).toLocaleString();
+    document.getElementById('amtCash').innerText = '$' + Math.round(totalCashVal).toLocaleString();
+    
+	document.getElementById('amtStock').innerText = '$' + Math.round(totalCashVal).toLocaleString();
+	
+    const slices = [
+      { name: '原型大盤', value: totalCoreVal, color: '#3b82f6' },
+      { name: '槓桿正二', value: totalLevVal, color: '#f59e0b' },
+      { name: '類現金', value: totalCashVal, color: '#10b981' }
+    ];
+    drawPieChart(slices, pieTotal);
+
+    // 加權 Beta: 僅計算核心配置
+    const weightedBeta = (totalCoreVal * 1.0 + totalLevVal * 2.0 + totalCashVal * 0.0) / pieTotal;
+    document.getElementById('portfolioBeta').innerText = weightedBeta.toFixed(2);
+    document.getElementById('exposureRatio').innerText = `等效股票曝險: ${(weightedBeta * 100).toFixed(1)}%`;
+  } else {
+    drawPieChart([], 0);
+    document.getElementById('portfolioBeta').innerText = "0.00";
+    document.getElementById('exposureRatio').innerText = `等效股票曝險: 0%`;
+  }
+}
+
+window.onload = initTables;
+</script>
+</body>
+</html>
